@@ -1,14 +1,23 @@
 from datetime import datetime
 from typing import Optional
-from app.core.ports.payment_repository_port import PaymentRepositoryPort
+
+from app.domain.entities.payment import Payment
+from app.domain.ports import PaymentRepositoryPort
+from app.domain.ports.order_status_notifier_port import OrderStatusNotifierPort
 from app.shared.enums.payment_status import PaymentStatus
-from app.core.entities.payment import Payment
+
 
 class UpdatePaymentStatusService:
-    def __init__(self, payment_repository: PaymentRepositoryPort):
+    def __init__(self, payment_repository: PaymentRepositoryPort,notifier: OrderStatusNotifierPort):
         self.payment_repository = payment_repository
+        self.notifier  = notifier
 
-    def execute(self, order_id: int, new_status: PaymentStatus, description: Optional[str] = None) -> Payment:
+    def execute(
+        self,
+        order_id: int,
+        new_status: PaymentStatus,
+        description: Optional[str] = None,
+    ) -> Payment:
         """
         Atualiza o status do pagamento associado ao pedido.
         Se o status for PAID, atualiza a data de pagamento para o momento atual.
@@ -23,4 +32,5 @@ class UpdatePaymentStatusService:
             payment.payment_date = datetime.now()
 
         updated_payment = self.payment_repository.update(payment)
+        self.notifier.notify(order_id, new_status.value)
         return updated_payment

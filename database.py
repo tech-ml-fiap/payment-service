@@ -2,7 +2,7 @@ import os
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
 
-DB_HOST = os.getenv("DB_HOST", "clientservice-db")
+DB_HOST = os.getenv("DB_HOST", "paymentservice-db")
 DB_PORT = os.getenv("DB_PORT", "5432")
 DB_USER = os.getenv("DB_USER", "postgres")
 DB_PASSWORD = os.getenv("DB_PASSWORD", "mysecretpassword")

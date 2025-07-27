@@ -1,1 +1,1 @@
-from app.adapters.driven.models.customer_model import CustomerModel  # noqa: F401
+from app.adapters.driven.models.payment_model import PaymentModel  # noqa: F401
