@@ -1,46 +1,68 @@
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from app.domain.entities.payment import Payment
-from app.domain.ports.payment_repository_port import PaymentRepositoryPort
 from app.adapters.driven.models.payment_model import PaymentModel
+from app.shared.enums.payment_status import PaymentStatus
 
 
-class PaymentRepository(PaymentRepositoryPort):
+class PaymentRepository:
     def __init__(self, session: Session):
         self.session = session
 
-    # helpers
+    # ---------- helpers ----------
     @staticmethod
-    def _to_domain(model: PaymentModel) -> Payment:
+    def _to_domain(m: PaymentModel) -> Payment:
         return Payment(
-            id=model.id, order_id=model.order_id, amount=model.amount,
-            qr_code=model.qr_code, status=model.status,
-            payment_date=model.payment_date, description=model.description
+            id=m.id,
+            order_id=m.order_id,
+            amount=m.amount,
+            qr_code=m.qr_code,
+            status=m.status,
+            payment_date=m.payment_date,
+            description=m.description,
         )
 
-    # CRUD
+    # ---------- C ----------
     def create(self, payment: Payment) -> Payment:
-        m = PaymentModel(**payment.__dict__)
-        self.session.add(m); self.session.commit(); self.session.refresh(m)
-        return self._to_domain(m)
+        model = PaymentModel(
+            order_id=payment.order_id,
+            amount=payment.amount,
+            qr_code=payment.qr_code,
+            status=payment.status,
+            payment_date=payment.payment_date,
+            description=payment.description,
+        )
+        self.session.add(model)
+        self.session.commit()
+        self.session.refresh(model)
+        return self._to_domain(model)
 
+    # ---------- R ----------
     def get_by_order_id(self, order_id: int) -> Optional[Payment]:
-        m = (self.session.query(PaymentModel)
-                       .filter_by(order_id=order_id).first())
+        m = self.session.query(PaymentModel).filter_by(order_id=order_id).first()
         return self._to_domain(m) if m else None
 
     def list_pending(self) -> List[Payment]:
-        return [self._to_domain(m)
-                for m in self.session.query(PaymentModel)
-                                     .filter_by(status="PENDING").all()]
+        return [
+            self._to_domain(m)
+            for m in self.session.query(PaymentModel)
+            .filter_by(status=PaymentStatus.PENDING)
+            .all()
+        ]
 
+    # ---------- U ----------
     def update(self, payment: Payment) -> Payment:
-        m: PaymentModel = (self.session.query(PaymentModel)
-                                      .filter_by(id=payment.id).first())
-        if not m:
+        model: PaymentModel = self.session.query(PaymentModel).get(payment.id)
+        if not model:
             raise ValueError("Payment not found")
 
-        for field in payment.__dict__:
-            setattr(m, field, getattr(payment, field))
-        self.session.commit(); self.session.refresh(m)
-        return self._to_domain(m)
+        model.order_id = payment.order_id
+        model.amount = payment.amount
+        model.qr_code = payment.qr_code
+        model.status = payment.status
+        model.payment_date = payment.payment_date
+        model.description = payment.description
+
+        self.session.commit()
+        self.session.refresh(model)
+        return self._to_domain(model)

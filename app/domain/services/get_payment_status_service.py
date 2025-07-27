@@ -1,5 +1,6 @@
-from app.core.entities.payment import Payment
-from app.core.ports.payment_repository_port import PaymentRepositoryPort
+from app.domain.entities.payment import Payment
+from app.domain.ports import PaymentRepositoryPort
+
 
 class GetPaymentStatusService:
     def __init__(self, payment_repository: PaymentRepositoryPort):

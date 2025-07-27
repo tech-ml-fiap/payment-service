@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
-from app.adapters.driven.models import customer_model
+from app.adapters.driven.models import payment_model
 # 1) Importa o seu Base e models, para o Alembic saber quais tabelas existem
 
 # 3) Obtemos a configuração do Alembic
@@ -17,7 +17,7 @@ DB_USER = os.getenv("DB_USER", "postgres")
 DB_PASSWORD = os.getenv("DB_PASSWORD", "mysecretpassword")
 DB_HOST = os.getenv("DB_HOST", "localhost")
 DB_PORT = os.getenv("DB_PORT", "5432")
-DB_NAME = os.getenv("DB_NAME", "fastfood")
+DB_NAME = os.getenv("DB_NAME", "payment_service")
 
 # 5) Monta a URL do banco dinamicamente
 database_url = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
@@ -30,7 +30,7 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 # 8) Aponta o Alembic para o metadata do seu projeto (para autogenerate)
-target_metadata = customer_model.Base.metadata
+target_metadata = payment_model.Base.metadata
 
 
 def run_migrations_offline() -> None:

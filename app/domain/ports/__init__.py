@@ -1,1 +1,1 @@
-from .customer_repository_port import CustomerRepositoryPort  # noqa: F401
+from .payment_repository_port import PaymentRepositoryPort  # noqa: F401
