@@ -11,13 +11,12 @@ env:
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: infra
 
     steps:
     - uses: actions/checkout@v4
-
-
-    - name: Set TF_DIR
-      run: echo "TF_DIR=infra" >> $GITHUB_ENV   .
 
     - uses: aws-actions/configure-aws-credentials@v4
       with:
@@ -39,13 +38,10 @@ jobs:
         terraform_version: 1.6.5
 
     - name: Terraform Init
-      working-directory: ${{ env.TF_DIR }}
       run: terraform init
 
     - name: Terraform Apply
-      working-directory: ${{ env.TF_DIR }}
       run: terraform apply -auto-approve
 
     - name: Output URL
-      working-directory: ${{ env.TF_DIR }}
       run: terraform output -raw service_url
