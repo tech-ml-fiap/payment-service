@@ -20,7 +20,7 @@ def db_session():
     engine = create_engine(
         "sqlite:///:memory:",
         connect_args={"check_same_thread": False},
-        poolclass=StaticPool,  # 👉 1 só conexão para todo o pool
+        poolclass=StaticPool,
     )
 
     Base.metadata.create_all(engine)
