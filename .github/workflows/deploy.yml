@@ -2,7 +2,7 @@ name: CI/CD Payment Service
 
 on:
   push:
-    branches: [ main, master ]
+     branches: [ main, master ]
 
 env:
   AWS_REGION: us-east-1
@@ -15,17 +15,20 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
-    # Credenciais armazenadas como segredos do repositório
+
+    - name: Set TF_DIR
+      run: echo "TF_DIR=infra" >> $GITHUB_ENV   .
+
     - uses: aws-actions/configure-aws-credentials@v4
       with:
         aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        aws-region:            ${{ secrets.AWS_REGION }}
+        aws-region:            ${{ env.AWS_REGION }}
         aws-session-token    : ${{ secrets.AWS_SESSION_TOKEN }}
 
     - uses: aws-actions/amazon-ecr-login@v2
 
-    - name: Build & Push Docker image
+    - name: Build & Push image
       run: |
         IMAGE_URI=$(aws ecr describe-repositories --repository-names $ECR_REPO --query "repositories[0].repositoryUri" --output text)
         docker build -t $IMAGE_URI:latest .
@@ -35,8 +38,14 @@ jobs:
       with:
         terraform_version: 1.6.5
 
-    - run: terraform init
-    - run: terraform apply -auto-approve
+    - name: Terraform Init
+      working-directory: ${{ env.TF_DIR }}
+      run: terraform init
 
-    - name: Show URL
+    - name: Terraform Apply
+      working-directory: ${{ env.TF_DIR }}
+      run: terraform apply -auto-approve
+
+    - name: Output URL
+      working-directory: ${{ env.TF_DIR }}
       run: terraform output -raw service_url
