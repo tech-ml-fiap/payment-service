@@ -69,26 +69,50 @@ jobs:
       shell: bash
       run: |
         set -euo pipefail
-        set -x                          
+        set -x
 
         ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text --region us-east-1)
         BUCKET="payment-service-artifacts-${ACCOUNT_ID}"
+        APP_VERSION="${{ env.APP_VERSION }}"
+        ZIP_PATH="${{ env.ZIP_PATH }}"
 
-        # ---------- Aplicação EB ----------
+        ########################################
+        # Função helper: import idempotente
+        ########################################
+        import_if_missing () {
+          local addr="$1"  # ex.: aws_elastic_beanstalk_application.app
+          local id="$2"    # ex.: payment-service
+
+          if [ -f terraform.tfstate ]; then
+            terraform state list | grep -q "^${addr}$" || \
+              terraform import -var="app_version=$APP_VERSION" \
+                               -var="artifact_zip=$ZIP_PATH" \
+                               "$addr" "$id"
+          else
+            # sem state ainda → importa direto
+            terraform import -var="app_version=$APP_VERSION" \
+                             -var="artifact_zip=$ZIP_PATH" \
+                             "$addr" "$id"
+          fi
+        }
+
+        ########################################
+        # 1) Aplicação EB
+        ########################################
         if aws elasticbeanstalk describe-applications \
              --application-names payment-service \
              --query 'Applications[0].ApplicationName' --output text \
              --region us-east-1 >/dev/null 2>&1; then
-
-          terraform state list | grep -q '^aws_elastic_beanstalk_application\.app$' \
-            || terraform import aws_elastic_beanstalk_application.app payment-service
+          import_if_missing aws_elastic_beanstalk_application.app payment-service
         fi
 
-        # ---------- Bucket ----------
+        ########################################
+        # 2) Bucket S3
+        ########################################
         if aws s3api head-bucket --bucket "$BUCKET" --region us-east-1 2>/dev/null; then
-          terraform state list | grep -q '^aws_s3_bucket\.artifacts$' \
-            || terraform import aws_s3_bucket.artifacts "$BUCKET"
+          import_if_missing aws_s3_bucket.artifacts "$BUCKET"
         fi
+    
     
 
     - name: Terraform Apply
