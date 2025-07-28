@@ -1,10 +1,5 @@
-import os
-
-import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-
-from app.adapters.driven.notifiers.order_status_notifier_http import OrderStatusNotifierHttp
 from app.adapters.driver.controllers.schemas import (
     PaymentCreateIn,
     PaymentQRCodeOut,
@@ -22,7 +17,6 @@ from app.shared.generate_qr_data import generate_qr_data
 from app.adapters.driver.dependencies import get_db
 
 router = APIRouter()
-ORDER_SERVICE_URL = os.getenv("ORDER_SERVICE_URL", "http://order-service:8000")
 
 
 @router.post("", response_model=PaymentQRCodeOut, status_code=201)
@@ -61,14 +55,13 @@ def get_status(order_id: int, db: Session = Depends(get_db)):
 @router.post("/webhook", status_code=200)
 def webhook(body: WebhookIn, db: Session = Depends(get_db)):
     repo = PaymentRepository(db)
-    notifier = OrderStatusNotifierHttp(ORDER_SERVICE_URL, httpx.Client())
-    service = ups.UpdatePaymentStatusService(repo,notifier)
+    service = ups.UpdatePaymentStatusService(repo)
+    # try:
+    #     status_enum = PaymentStatus(body.payment_status)
+    # except ValueError:
+    #     raise HTTPException(400, "payment_status inválido")
     try:
-        status_enum = PaymentStatus(body.payment_status)
-    except ValueError:
-        raise HTTPException(400, "payment_status inválido")
-    try:
-        p = service.execute(body.order_id, status_enum, body.description)
+        p = service.execute(body.order_id, body.payment_status, body.description)
         return PaymentStatusOut(
             order_id=p.order_id,
             status=p.status,

@@ -5,12 +5,12 @@ services:
     image: postgres:15-alpine
     container_name: paymentservice-db
     ports:
-      - "5434:5434"
+      - "5433:5432"  # Evita conflito com outro serviço
     env_file: .env
     environment:
-      POSTGRES_USER:     ${DB_USER}
+      POSTGRES_USER: ${DB_USER}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
-      POSTGRES_DB:       ${DB_NAME}
+      POSTGRES_DB: ${DB_NAME}
     volumes:
       - paymentservice_db_data:/var/lib/postgresql/data
     healthcheck:
@@ -36,22 +36,15 @@ services:
     build: .
     container_name: paymentservice-web
     ports:
-      - "8002:8002"
+      - "8002:8000"
     env_file: .env
     depends_on:
       db:
         condition: service_healthy
     command: >
-      uvicorn main:app --host 0.0.0.0 --port 8002 --reload
+      uvicorn main:app --host 0.0.0.0 --port 8000 --reload
     volumes:
       - .:/app
-    environment:
-      PYTHONUNBUFFERED: "1"
-      DB_HOST: ${DB_HOST}
-      DB_PORT: ${DB_PORT}
-      DB_USER: ${DB_USER}
-      DB_PASSWORD: ${DB_PASSWORD}
-      DB_NAME: ${DB_NAME}
     networks: [fastfood]
 
 volumes:

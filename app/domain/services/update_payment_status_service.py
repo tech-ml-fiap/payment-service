@@ -3,14 +3,12 @@ from typing import Optional
 
 from app.domain.entities.payment import Payment
 from app.domain.ports import PaymentRepositoryPort
-from app.domain.ports.order_status_notifier_port import OrderStatusNotifierPort
 from app.shared.enums.payment_status import PaymentStatus
 
 
 class UpdatePaymentStatusService:
-    def __init__(self, payment_repository: PaymentRepositoryPort,notifier: OrderStatusNotifierPort):
+    def __init__(self, payment_repository: PaymentRepositoryPort):
         self.payment_repository = payment_repository
-        self.notifier  = notifier
 
     def execute(
         self,
@@ -32,5 +30,4 @@ class UpdatePaymentStatusService:
             payment.payment_date = datetime.now()
 
         updated_payment = self.payment_repository.update(payment)
-        self.notifier.notify(order_id, new_status.value)
         return updated_payment

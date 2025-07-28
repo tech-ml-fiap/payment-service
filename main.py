@@ -9,7 +9,7 @@ bearer_scheme = HTTPBearer()
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="Client-Service")
+    app = FastAPI(title="Payment-Service")
     app.include_router(payment_controller, prefix="/api/payment", tags=["payment"])
     return app
 
