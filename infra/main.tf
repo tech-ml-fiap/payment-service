@@ -3,26 +3,27 @@ terraform {
   required_providers {
     aws     = { source = "hashicorp/aws", version = "~> 5.0" }
     random  = { source = "hashicorp/random", version = "~> 3.5" }
-    archive = { source = "hashicorp/archive", version = "~> 2.4" }
   }
 }
 
 provider "aws" { region = "us-east-1" }
 
-# Variáveis passadas pela pipeline
-variable "app_version"  { type = string }   # ex.: commit SHA
-variable "artifact_zip" { type = string }   # caminho absoluto do ZIP
+########################################
+# Variáveis vindas da pipeline
+########################################
+variable "app_version"  { type = string }
+variable "artifact_zip" { type = string }
 
+########################################
+# Nome único usando Account ID
+########################################
+data "aws_caller_identity" "me" {}
 
-#######################
-# Bucket de artefatos
-#######################
 resource "aws_s3_bucket" "artifacts" {
-  bucket         = "payment-service-artifacts"
-  force_destroy  = true
+  bucket        = "payment-service-artifacts-${data.aws_caller_identity.me.account_id}"
+  force_destroy = true
 }
 
-# Upload do ZIP gerado no CI
 resource "aws_s3_object" "pkg" {
   bucket = aws_s3_bucket.artifacts.id
   key    = "build-${var.app_version}.zip"
@@ -30,9 +31,9 @@ resource "aws_s3_object" "pkg" {
   etag   = filemd5(var.artifact_zip)
 }
 
-#######################
-# Elastic Beanstalk
-#######################
+########################################
+# Elastic Beanstalk (sem OptionSetting Image)
+########################################
 resource "aws_elastic_beanstalk_application" "app" {
   name = "payment-service"
 }
