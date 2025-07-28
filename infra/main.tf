@@ -10,8 +10,9 @@ terraform {
 provider "aws" { region = "us-east-1" }
 
 # Variáveis passadas pela pipeline
-variable "app_version" { type = string }      # e.g. commit SHA
-variable "artifact_zip" { type = string }     # path absoluto do ZIP gerado
+variable "app_version"  { type = string }   # ex.: commit SHA
+variable "artifact_zip" { type = string }   # caminho absoluto do ZIP
+
 
 #######################
 # Bucket de artefatos

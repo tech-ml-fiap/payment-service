@@ -68,8 +68,8 @@ jobs:
       working-directory: infra
       run: |
         terraform apply -auto-approve -input=false \
-          -var="docker_image=${IMAGE_URI}" \
-          -var="app_version=${APP_VERSION}"
+          -var="app_version=${{ github.sha }}" \
+          -var="artifact_zip=${ZIP_PATH}"
 
     - name: Show URL
       working-directory: infra
