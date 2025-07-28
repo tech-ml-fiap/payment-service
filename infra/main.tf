@@ -1,79 +1,49 @@
-############################################
-# Configurações básicas do Terraform
-############################################
 terraform {
   required_version = ">= 1.6"
-
   required_providers {
-    aws = {
-      source  = "hashicorp/aws"
-      version = "~> 5.0"
-    }
-    random = {
-      source  = "hashicorp/random"
-      version = "~> 3.5"
-    }
+    aws    = { source = "hashicorp/aws", version = "~> 5.0" }
+    random = { source = "hashicorp/random", version = "~> 3.5" }
   }
 }
 
-provider "aws" {
-  region = "us-east-1"           # região liberada para contas Academy
-}
+provider "aws" { region = "us-east-1" }
 
-############################################
-# Recursos globais já existentes
-############################################
+# ------------------------------------------------------------------
+# Recursos já existentes
+# ------------------------------------------------------------------
+data "aws_ecr_repository" "payment" { name = "payment-service" }
 
-# Repositório ECR (apenas leitura)
-data "aws_ecr_repository" "payment" {
-  name = "payment-service"
-}
-
-# Solution Stack mais recente de Docker em Amazon Linux 2
+# Somente Amazon Linux 2 Docker
 data "aws_elastic_beanstalk_solution_stack" "docker_al2_latest" {
-  name_regex  = "^64bit Amazon Linux 2.*running Docker$"
+  name_regex  = "^64bit Amazon Linux 2 v.*running Docker$"
   most_recent = true
 }
 
-############################################
-# Recursos a serem criados
-############################################
+# ------------------------------------------------------------------
+# Recursos a criar
+# ------------------------------------------------------------------
+resource "random_id" "suffix" { byte_length = 4 }
 
-# Sufixo aleatório para evitar colisão de CNAME
-resource "random_id" "suffix" {
-  byte_length = 4
-}
-
-# Aplicação Elastic Beanstalk
 resource "aws_elastic_beanstalk_application" "app" {
   name = "payment-service"
 }
 
-# Ambiente Elastic Beanstalk
 resource "aws_elastic_beanstalk_environment" "env" {
-  name                = "payment-service-env"
+  name                = "payment-service-env-${random_id.suffix.hex}"
   application         = aws_elastic_beanstalk_application.app.name
   solution_stack_name = data.aws_elastic_beanstalk_solution_stack.docker_al2_latest.name
+  cname_prefix        = "payment-service-${random_id.suffix.hex}"
 
-  # Ex.: payment-service-abcd.us-east-1.elasticbeanstalk.com
-  cname_prefix = "payment-service-${random_id.suffix.hex}"
-
-  ############################
-  # Configurações do ambiente
-  ############################
   setting {
     namespace = "aws:elasticbeanstalk:container:docker"
     name      = "Image"
     value     = "${data.aws_ecr_repository.payment.repository_url}:latest"
   }
-
-  # Papéis padrão já fornecidos na conta Academy
   setting {
     namespace = "aws:elasticbeanstalk:environment"
     name      = "ServiceRole"
     value     = "LabRole"
   }
-
   setting {
     namespace = "aws:autoscaling:launchconfiguration"
     name      = "IamInstanceProfile"
@@ -81,15 +51,15 @@ resource "aws_elastic_beanstalk_environment" "env" {
   }
 }
 
-############################################
-# Saídas úteis
-############################################
+# ------------------------------------------------------------------
+# Outputs
+# ------------------------------------------------------------------
 output "service_url" {
   description = "URL pública do payment-service"
   value       = "http://${aws_elastic_beanstalk_environment.env.endpoint_url}"
 }
 
 output "ecr_repo_url" {
-  description = "URI do repositório ECR para push da imagem"
+  description = "URI do repositório ECR"
   value       = data.aws_ecr_repository.payment.repository_url
 }
