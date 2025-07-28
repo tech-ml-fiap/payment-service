@@ -41,20 +41,20 @@ jobs:
         echo "APP_VERSION=${{ github.sha }}"            >> $GITHUB_ENV
 
     # ---------- Gera Dockerrun.zip ----------
-    - name: Generate Dockerrun
+    - name: Generate Dockerrun & Zip
       run: |
+        IMAGE_URI=$(echo ${{ env.IMAGE_URI }})
+        
         cat > Dockerrun.aws.json <<EOF
         {
           "AWSEBDockerrunVersion": "1",
-          "Image": {
-            "Name": "${IMAGE_URI}",
-            "Update": "true"
-          },
+          "Image": { "Name": "$IMAGE_URI", "Update": "true" },
           "Ports": [ { "ContainerPort": "8000" } ]
         }
         EOF
-        cd infra
-        zip -q deploy.zip ../Dockerrun.aws.json
+        
+        zip -q deploy.zip Dockerrun.aws.json
+        echo "ZIP_PATH=$(pwd)/deploy.zip" >> $GITHUB_ENV
 
     # ---------- Terraform ----------
     - uses: hashicorp/setup-terraform@v3
