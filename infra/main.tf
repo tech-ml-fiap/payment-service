@@ -1,3 +1,6 @@
+############################################
+# Configurações básicas do Terraform
+############################################
 terraform {
   required_version = ">= 1.6"
 
@@ -14,49 +17,57 @@ terraform {
 }
 
 provider "aws" {
-  region = "us-east-1"            # região liberada na conta Academy
+  region = "us-east-1"           # região liberada para contas Academy
 }
 
-# ------------------------------------------------------------------
-# Repositório ECR já existente (somente leitura)
-# ------------------------------------------------------------------
+############################################
+# Recursos globais já existentes
+############################################
+
+# Repositório ECR (apenas leitura)
 data "aws_ecr_repository" "payment" {
   name = "payment-service"
 }
 
-# ------------------------------------------------------------------
-# Sufixo aleatório para evitar colisão de CNAME no Elastic Beanstalk
-# ------------------------------------------------------------------
+# Solution Stack mais recente de Docker em Amazon Linux 2
+data "aws_elastic_beanstalk_solution_stack" "docker_al2_latest" {
+  name_regex  = "^64bit Amazon Linux 2.*running Docker$"
+  most_recent = true
+}
+
+############################################
+# Recursos a serem criados
+############################################
+
+# Sufixo aleatório para evitar colisão de CNAME
 resource "random_id" "suffix" {
   byte_length = 4
 }
 
-# ------------------------------------------------------------------
 # Aplicação Elastic Beanstalk
-# ------------------------------------------------------------------
 resource "aws_elastic_beanstalk_application" "app" {
   name = "payment-service"
 }
 
-# ------------------------------------------------------------------
 # Ambiente Elastic Beanstalk
-# ------------------------------------------------------------------
 resource "aws_elastic_beanstalk_environment" "env" {
   name                = "payment-service-env"
   application         = aws_elastic_beanstalk_application.app.name
-  solution_stack_name = "64bit Amazon Linux 2 v3.8.5 running Docker"
+  solution_stack_name = data.aws_elastic_beanstalk_solution_stack.docker_al2_latest.name
 
-  # prefixo do CNAME (fica algo como payment-service-<hex>.us-east-1.elasticbeanstalk.com)
+  # Ex.: payment-service-abcd.us-east-1.elasticbeanstalk.com
   cname_prefix = "payment-service-${random_id.suffix.hex}"
 
-  # imagem Docker publicada no ECR
+  ############################
+  # Configurações do ambiente
+  ############################
   setting {
     namespace = "aws:elasticbeanstalk:container:docker"
     name      = "Image"
     value     = "${data.aws_ecr_repository.payment.repository_url}:latest"
   }
 
-  # papéis já existentes na conta Academy
+  # Papéis padrão já fornecidos na conta Academy
   setting {
     namespace = "aws:elasticbeanstalk:environment"
     name      = "ServiceRole"
@@ -70,15 +81,15 @@ resource "aws_elastic_beanstalk_environment" "env" {
   }
 }
 
-# ------------------------------------------------------------------
-# Saídas
-# ------------------------------------------------------------------
+############################################
+# Saídas úteis
+############################################
 output "service_url" {
   description = "URL pública do payment-service"
   value       = "http://${aws_elastic_beanstalk_environment.env.endpoint_url}"
 }
 
 output "ecr_repo_url" {
-  description = "URI do repositório ECR para o push da imagem"
+  description = "URI do repositório ECR para push da imagem"
   value       = data.aws_ecr_repository.payment.repository_url
 }
