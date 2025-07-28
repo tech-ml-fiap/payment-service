@@ -48,7 +48,6 @@ jobs:
           uses: actions/download-artifact@v4
           with:
             name: coverage-report
-
         - name: Check coverage file
           run: |
             echo "Conteúdo de coverage.xml"
