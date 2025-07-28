@@ -68,20 +68,25 @@ jobs:
       working-directory: infra
       shell: bash
       run: |
-        ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+        set -euo pipefail
+        set -x                          
+
+        ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text --region us-east-1)
         BUCKET="payment-service-artifacts-${ACCOUNT_ID}"
-        
-        # Import da aplicação EB (caso exista e ainda não esteja no state)
+
+        # ---------- Aplicação EB ----------
         if aws elasticbeanstalk describe-applications \
              --application-names payment-service \
-             --query 'Applications[0].ApplicationName' --output text >/dev/null 2>&1; then
-          terraform state show aws_elastic_beanstalk_application.app >/dev/null 2>&1 \
+             --query 'Applications[0].ApplicationName' --output text \
+             --region us-east-1 >/dev/null 2>&1; then
+
+          terraform state list | grep -q '^aws_elastic_beanstalk_application\.app$' \
             || terraform import aws_elastic_beanstalk_application.app payment-service
         fi
-        
-        # Import do bucket (caso exista na conta)
-        if aws s3api head-bucket --bucket "$BUCKET" 2>/dev/null; then
-          terraform state show aws_s3_bucket.artifacts >/dev/null 2>&1 \
+
+        # ---------- Bucket ----------
+        if aws s3api head-bucket --bucket "$BUCKET" --region us-east-1 2>/dev/null; then
+          terraform state list | grep -q '^aws_s3_bucket\.artifacts$' \
             || terraform import aws_s3_bucket.artifacts "$BUCKET"
         fi
     
