@@ -80,24 +80,42 @@ jobs:
       shell: bash
       run: |
         set -euo pipefail
+        set -x
+
         ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
         BUCKET="payment-service-artifacts-${ACCOUNT_ID}"
 
-        import() { terraform import -var="app_version=${APP_VERSION}" \
-                                    -var="artifact_zip=${ZIP_PATH}" "$@"; }
+        # ---- Função de import idempotente ----
+        import() {
+          terraform import \
+            -var="app_version=${APP_VERSION}" \
+            -var="artifact_zip=${ZIP_PATH}" \
+            -var="db_host=${DB_HOST}" \
+            -var="db_port=${DB_PORT}" \
+            -var="db_user=${DB_USER}" \
+            -var="db_password=${DB_PASS}" \
+            -var="db_name=${DB_NAME}" \
+            -var="secret_key=${SECRET_KEY}" \
+            -var="algorithm=${ALGORITHM}" \
+            -var="token_expire=${ACCESS_TOKEN_EXPIRE_MINUTES}" \
+            "$@"
+        }
 
+        # Evita erro se o state ainda não existe
         terraform state list >/dev/null 2>&1 || true
 
+        # ---------- Aplicação EB ----------
         aws elasticbeanstalk describe-applications \
-          --application-names payment-service --query 'Applications[0]' --output text >/dev/null 2>&1 \
-          && ! terraform state list | grep -q '^aws_elastic_beanstalk_application\.app$' \
-          && import aws_elastic_beanstalk_application.app payment-service || true
+          --application-names payment-service --query 'Applications[0]' --output text >/dev/null 2>&1 &&
+          ! terraform state list | grep -q '^aws_elastic_beanstalk_application\.app$' &&
+          import aws_elastic_beanstalk_application.app payment-service || true
 
-        aws s3api head-bucket --bucket "$BUCKET" 2>/dev/null \
-          && ! terraform state list | grep -q '^aws_s3_bucket\.artifacts$' \
-          && import aws_s3_bucket.artifacts "$BUCKET" || true
+        # ---------- Bucket ----------
+        aws s3api head-bucket --bucket "$BUCKET" 2>/dev/null &&
+          ! terraform state list | grep -q '^aws_s3_bucket\.artifacts$' &&
+          import aws_s3_bucket.artifacts "$BUCKET" || true  
 
-    # 8) Terraform Apply
+      # 8) Terraform Apply
     - name: Terraform Apply
       working-directory: infra
       run: |
