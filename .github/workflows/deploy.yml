@@ -2,7 +2,7 @@ name: CI/CD Payment Service
 
 on:
   push:
-     branches: [ main, master ]
+    branches: [main, master]
 
 env:
   AWS_REGION: us-east-1
@@ -11,37 +11,49 @@ env:
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: infra
 
     steps:
+    # 1) Checkout
     - uses: actions/checkout@v4
 
+    # 2) Credenciais AWS
     - uses: aws-actions/configure-aws-credentials@v4
       with:
         aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-session-token:     ${{ secrets.AWS_SESSION_TOKEN }}
         aws-region:            ${{ env.AWS_REGION }}
-        aws-session-token    : ${{ secrets.AWS_SESSION_TOKEN }}
 
+    # 3) Login no ECR
     - uses: aws-actions/amazon-ecr-login@v2
 
+    # 4) Build & Push (executa na **raiz** — sem working-directory)
     - name: Build & Push image
       run: |
-        IMAGE_URI=$(aws ecr describe-repositories --repository-names $ECR_REPO --query "repositories[0].repositoryUri" --output text)
-        docker build -t $IMAGE_URI:latest .
+        # cria o repo se não existir
+        aws ecr describe-repositories --repository-names $ECR_REPO \
+          || aws ecr create-repository --repository-name $ECR_REPO \
+               --image-tag-mutability MUTABLE
+        IMAGE_URI=$(aws ecr describe-repositories --repository-names $ECR_REPO \
+                   --query 'repositories[0].repositoryUri' --output text)
+        docker build -t $IMAGE_URI:latest .          # aqui o Dockerfile existe
         docker push $IMAGE_URI:latest
+      shell: bash
 
+    # 5) Instala Terraform
     - uses: hashicorp/setup-terraform@v3
       with:
         terraform_version: 1.6.5
 
+    # 6) Terraform (executa dentro de infra/)
     - name: Terraform Init
+      working-directory: infra
       run: terraform init
 
     - name: Terraform Apply
+      working-directory: infra
       run: terraform apply -auto-approve
 
-    - name: Output URL
+    - name: Print service URL
+      working-directory: infra
       run: terraform output -raw service_url
