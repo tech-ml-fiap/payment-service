@@ -1,72 +1,88 @@
-name: CI/CD Payment Service
-on: [push]
+terraform {
+  required_version = ">= 1.6"
+  required_providers {
+    aws    = { source = "hashicorp/aws", version = "~> 5.0" }
+    random = { source = "hashicorp/random", version = "~> 3.5" }
+    archive = { source = "hashicorp/archive", version = "~> 2.4" }
+  }
+}
 
-env:
-  AWS_REGION: us-east-1
-  ECR_REPO:  payment-service
+provider "aws" { region = "us-east-1" }
 
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v4
+########################################
+# Variáveis que vêm da pipeline
+########################################
+variable "docker_image"   { type = string }
+variable "app_version"    { type = string }   # ex.: commit SHA
 
-    - uses: aws-actions/configure-aws-credentials@v4
-      with:
-        aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
-        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        aws-session-token:     ${{ secrets.AWS_SESSION_TOKEN }}
-        aws-region:            ${{ env.AWS_REGION }}
+########################################
+# Bucket de artefatos (cria 1×, importa depois)
+########################################
+resource "aws_s3_bucket" "artifacts" {
+  bucket = "payment-service-artifacts"
+  force_destroy = true
+}
 
-    - uses: aws-actions/amazon-ecr-login@v2
+########################################
+# Dockerrun gerado pela pipeline
+########################################
+data "archive_file" "zip" {
+  type        = "zip"
+  source_file = "${path.module}/deploy.zip"         # criado no CI
+  output_path = "${path.module}/build-${var.app_version}.zip"
+}
 
-    # ---------- Build & push ----------
-    - name: Build and Push image
-      id: build
-      run: |
-        aws ecr describe-repositories --repository-names $ECR_REPO 2>/dev/null \
-          || aws ecr create-repository --repository-name $ECR_REPO --image-tag-mutability MUTABLE
+resource "aws_s3_object" "package" {
+  bucket = aws_s3_bucket.artifacts.id
+  key    = "build-${var.app_version}.zip"
+  source = data.archive_file.zip.output_path
+  etag   = filemd5(data.archive_file.zip.output_path)
+}
 
-        IMAGE_URI=$(aws ecr describe-repositories --repository-names $ECR_REPO \
-                    --query 'repositories[0].repositoryUri' --output text)
+########################################
+# Beanstalk
+########################################
+resource "aws_elastic_beanstalk_application" "app" {
+  name = "payment-service"
+}
 
-        docker build -t $IMAGE_URI:${{ github.sha }} .
-        docker push     $IMAGE_URI:${{ github.sha }}
+resource "aws_elastic_beanstalk_application_version" "ver" {
+  name        = var.app_version
+  application = aws_elastic_beanstalk_application.app.name
+  bucket      = aws_s3_bucket.artifacts.id
+  key         = aws_s3_object.package.key
+}
 
-        echo "IMAGE_URI=$IMAGE_URI:${{ github.sha }}"   >> $GITHUB_ENV
-        echo "APP_VERSION=${{ github.sha }}"            >> $GITHUB_ENV
+resource "random_id" "suffix" { byte_length = 4 }
 
-    # ---------- Gera Dockerrun.zip ----------
-    - name: Generate Dockerrun
-      run: |
-        cat > Dockerrun.aws.json <<EOF
-        {
-          "AWSEBDockerrunVersion": "1",
-          "Image": {
-            "Name": "${IMAGE_URI}",
-            "Update": "true"
-          },
-          "Ports": [ { "ContainerPort": "8000" } ]
-        }
-        EOF
-        cd infra
-        zip -q deploy.zip ../Dockerrun.aws.json
+data "aws_elastic_beanstalk_solution_stack" "docker_al2" {
+  name_regex  = "^64bit Amazon Linux 2 v.*running Docker$"
+  most_recent = true
+}
 
-    # ---------- Terraform ----------
-    - uses: hashicorp/setup-terraform@v3
-      with: { terraform_version: 1.6.5 }
+resource "aws_elastic_beanstalk_environment" "env" {
+  name                = "payment-service-env-${random_id.suffix.hex}"
+  application         = aws_elastic_beanstalk_application.app.name
+  solution_stack_name = data.aws_elastic_beanstalk_solution_stack.docker_al2.name
+  version_label       = aws_elastic_beanstalk_application_version.ver.name
+  cname_prefix        = "payment-service-${random_id.suffix.hex}"
 
-    - name: Terraform Init
-      working-directory: infra
-      run: terraform init -input=false
+  setting {
+    namespace = "aws:elasticbeanstalk:environment"
+    name      = "ServiceRole"
+    value     = "LabRole"
+  }
+  setting {
+    namespace = "aws:autoscaling:launchconfiguration"
+    name      = "IamInstanceProfile"
+    value     = "LabInstanceProfile"
+  }
+}
 
-    - name: Terraform Apply
-      working-directory: infra
-      run: |
-        terraform apply -auto-approve -input=false \
-          -var="docker_image=${IMAGE_URI}" \
-          -var="app_version=${APP_VERSION}"
-
-    - name: Show URL
-      working-directory: infra
-      run: echo "🟢 URL -> $(terraform output -raw service_url)"
+########################################
+# Outputs
+########################################
+output "service_url" {
+  description = "Endpoint público da API"
+  value       = "http://${aws_elastic_beanstalk_environment.env.endpoint_url}"
+}
