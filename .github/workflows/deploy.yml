@@ -1,20 +1,32 @@
-
 name: CI/CD Payment Service
+
 on:
   push:
     branches: [main, master]
-
 
 env:
   AWS_REGION: us-east-1
   ECR_REPO:  payment-service
 
+  # Variáveis sensíveis (GitHub → Settings → Secrets → Actions)
+  DB_HOST:   ${{ secrets.DB_HOST }}
+  DB_PORT:   ${{ secrets.DB_PORT }}
+  DB_USER:   ${{ secrets.DB_USER }}
+  DB_PASS:   ${{ secrets.DB_PASSWORD }}
+  DB_NAME:   ${{ secrets.DB_NAME }}
+  SECRET_KEY: ${{ secrets.SECRET_KEY }}
+  ALGORITHM:  ${{ secrets.ALGORITHM }}
+  ACCESS_TOKEN_EXPIRE_MINUTES: ${{ secrets.ACCESS_TOKEN_EXPIRE_MINUTES }}
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
+
     steps:
+    # 1) Checkout
     - uses: actions/checkout@v4
 
+    # 2) Credenciais AWS
     - uses: aws-actions/configure-aws-credentials@v4
       with:
         aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
@@ -22,10 +34,11 @@ jobs:
         aws-session-token:     ${{ secrets.AWS_SESSION_TOKEN }}
         aws-region:            ${{ env.AWS_REGION }}
 
+    # 3) Login ECR
     - uses: aws-actions/amazon-ecr-login@v2
 
-    # ---------- Build & push ----------
-    - name: Build and Push image
+    # 4) Build & push da imagem
+    - name: Build & Push image
       id: build
       run: |
         aws ecr describe-repositories --repository-names $ECR_REPO 2>/dev/null \
@@ -37,26 +50,23 @@ jobs:
         docker build -t $IMAGE_URI:${{ github.sha }} .
         docker push     $IMAGE_URI:${{ github.sha }}
 
-        echo "IMAGE_URI=$IMAGE_URI:${{ github.sha }}"   >> $GITHUB_ENV
-        echo "APP_VERSION=${{ github.sha }}"            >> $GITHUB_ENV
+        echo "IMAGE_URI=$IMAGE_URI:${{ github.sha }}" >> $GITHUB_ENV
+        echo "APP_VERSION=${{ github.sha }}"        >> $GITHUB_ENV
 
-    # ---------- Gera Dockerrun.zip ----------
-    - name: Generate Dockerrun & Zip
+    # 5) Gera Dockerrun e zipa
+    - name: Generate Dockerrun & ZIP
       run: |
-        IMAGE_URI=$(echo ${{ env.IMAGE_URI }})
-        
         cat > Dockerrun.aws.json <<EOF
         {
           "AWSEBDockerrunVersion": "1",
-          "Image": { "Name": "$IMAGE_URI", "Update": "true" },
+          "Image": { "Name": "${IMAGE_URI}", "Update": "true" },
           "Ports": [ { "ContainerPort": "8000" } ]
         }
         EOF
-        
         zip -q deploy.zip Dockerrun.aws.json
         echo "ZIP_PATH=$(pwd)/deploy.zip" >> $GITHUB_ENV
 
-    # ---------- Terraform ----------
+    # 6) Terraform Init
     - uses: hashicorp/setup-terraform@v3
       with: { terraform_version: 1.6.5 }
 
@@ -64,64 +74,46 @@ jobs:
       working-directory: infra
       run: terraform init -input=false
 
+    # 7) Importa app + bucket, se já existirem (idempotente)
     - name: Importar recursos se já existirem
       working-directory: infra
       shell: bash
       run: |
         set -euo pipefail
-        set -x
-
-        ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text --region us-east-1)
+        ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
         BUCKET="payment-service-artifacts-${ACCOUNT_ID}"
-        APP_VERSION="${{ env.APP_VERSION }}"
-        ZIP_PATH="${{ env.ZIP_PATH }}"
 
-        ########################################
-        # Função helper: import idempotente
-        ########################################
-        import_if_missing () {
-          local addr="$1"  # ex.: aws_elastic_beanstalk_application.app
-          local id="$2"    # ex.: payment-service
+        import() { terraform import -var="app_version=${APP_VERSION}" \
+                                    -var="artifact_zip=${ZIP_PATH}" "$@"; }
 
-          if [ -f terraform.tfstate ]; then
-            terraform state list | grep -q "^${addr}$" || \
-              terraform import -var="app_version=$APP_VERSION" \
-                               -var="artifact_zip=$ZIP_PATH" \
-                               "$addr" "$id"
-          else
-            # sem state ainda → importa direto
-            terraform import -var="app_version=$APP_VERSION" \
-                             -var="artifact_zip=$ZIP_PATH" \
-                             "$addr" "$id"
-          fi
-        }
+        terraform state list >/dev/null 2>&1 || true
 
-        ########################################
-        # 1) Aplicação EB
-        ########################################
-        if aws elasticbeanstalk describe-applications \
-             --application-names payment-service \
-             --query 'Applications[0].ApplicationName' --output text \
-             --region us-east-1 >/dev/null 2>&1; then
-          import_if_missing aws_elastic_beanstalk_application.app payment-service
-        fi
+        aws elasticbeanstalk describe-applications \
+          --application-names payment-service --query 'Applications[0]' --output text >/dev/null 2>&1 \
+          && ! terraform state list | grep -q '^aws_elastic_beanstalk_application\.app$' \
+          && import aws_elastic_beanstalk_application.app payment-service || true
 
-        ########################################
-        # 2) Bucket S3
-        ########################################
-        if aws s3api head-bucket --bucket "$BUCKET" --region us-east-1 2>/dev/null; then
-          import_if_missing aws_s3_bucket.artifacts "$BUCKET"
-        fi
-    
-    
+        aws s3api head-bucket --bucket "$BUCKET" 2>/dev/null \
+          && ! terraform state list | grep -q '^aws_s3_bucket\.artifacts$' \
+          && import aws_s3_bucket.artifacts "$BUCKET" || true
 
+    # 8) Terraform Apply
     - name: Terraform Apply
       working-directory: infra
       run: |
         terraform apply -auto-approve -input=false \
-          -var="app_version=${{ github.sha }}" \
-          -var="artifact_zip=${ZIP_PATH}"
+          -var="app_version=${APP_VERSION}" \
+          -var="artifact_zip=${ZIP_PATH}" \
+          -var="db_host=${DB_HOST}" \
+          -var="db_port=${DB_PORT}" \
+          -var="db_user=${DB_USER}" \
+          -var="db_password=${DB_PASS}" \
+          -var="db_name=${DB_NAME}" \
+          -var="secret_key=${SECRET_KEY}" \
+          -var="algorithm=${ALGORITHM}" \
+          -var="token_expire=${ACCESS_TOKEN_EXPIRE_MINUTES}"
 
-    - name: Show URL
+    # 9) Exibe a URL pública
+    - name: Show service URL
       working-directory: infra
       run: echo "🟢 URL -> $(terraform output -raw service_url)"

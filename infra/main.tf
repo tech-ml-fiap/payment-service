@@ -1,22 +1,38 @@
+###############################################################################
+# Terraform – Payment Service (Elastic Beanstalk + Docker + RDS)
+###############################################################################
 terraform {
   required_version = ">= 1.6"
+
   required_providers {
     aws     = { source = "hashicorp/aws", version = "~> 5.0" }
     random  = { source = "hashicorp/random", version = "~> 3.5" }
   }
 }
 
-provider "aws" { region = "us-east-1" }
+provider "aws" {
+  region = "us-east-1"
+}
 
-########################################
-# Variáveis vindas da pipeline
-########################################
-variable "app_version"  { type = string }
-variable "artifact_zip" { type = string }
+#############################
+# Variáveis vindas da CI
+#############################
+variable "app_version"  { type = string }   # commit SHA
+variable "artifact_zip" { type = string }   # caminho do deploy.zip
 
-########################################
-# Nome único usando Account ID
-########################################
+variable "db_host"      { type = string }
+variable "db_port"      { type = string }
+variable "db_user"      { type = string }
+variable "db_password"  { type = string }
+variable "db_name"      { type = string }
+
+variable "secret_key"   { type = string }
+variable "algorithm"    { type = string }
+variable "token_expire" { type = string }
+
+#############################
+# Bucket único de artefatos
+#############################
 data "aws_caller_identity" "me" {}
 
 resource "aws_s3_bucket" "artifacts" {
@@ -31,9 +47,9 @@ resource "aws_s3_object" "pkg" {
   etag   = filemd5(var.artifact_zip)
 }
 
-########################################
-# Elastic Beanstalk (sem OptionSetting Image)
-########################################
+#############################
+# Elastic Beanstalk
+#############################
 resource "aws_elastic_beanstalk_application" "app" {
   name = "payment-service"
 }
@@ -59,6 +75,26 @@ resource "aws_elastic_beanstalk_environment" "env" {
   version_label       = aws_elastic_beanstalk_application_version.ver.name
   cname_prefix        = "payment-service-${random_id.suffix.hex}"
 
+  # Variáveis de ambiente
+  dynamic "setting" {
+    for_each = {
+      DB_HOST                     = var.db_host
+      DB_PORT                     = var.db_port
+      DB_USER                     = var.db_user
+      DB_PASSWORD                 = var.db_password
+      DB_NAME                     = var.db_name
+      SECRET_KEY                  = var.secret_key
+      ALGORITHM                   = var.algorithm
+      ACCESS_TOKEN_EXPIRE_MINUTES = var.token_expire
+    }
+    content {
+      namespace = "aws:elasticbeanstalk:application:environment"
+      name      = setting.key
+      value     = setting.value
+    }
+  }
+
+  # Roles padrão da conta Academy
   setting {
     namespace = "aws:elasticbeanstalk:environment"
     name      = "ServiceRole"
@@ -71,7 +107,10 @@ resource "aws_elastic_beanstalk_environment" "env" {
   }
 }
 
+#############################
+# Saída
+#############################
 output "service_url" {
+  description = "Endpoint público da API"
   value       = "http://${aws_elastic_beanstalk_environment.env.endpoint_url}"
-  description = "Endpoint público"
 }
