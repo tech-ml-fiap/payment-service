@@ -1,117 +1,42 @@
-name: Deploy AWS – payment-Service
+name: CI/CD Payment Service
 
 on:
   push:
-    branches: [ master ]
+    branches: [ main, master ]
 
 env:
-  AWS_REGION  : us-east-1
-  SERVICE_NAME: payment-service
-  PORT        : 8000
+  AWS_REGION: us-east-1
+  ECR_REPO: payment-service
 
 jobs:
-  deploy:
+  build-and-deploy:
     runs-on: ubuntu-latest
 
     steps:
-    # 1 – Checkout
     - uses: actions/checkout@v4
 
-    # 2 – Credenciais da AWS Academy (LabRole)
+    # Credenciais armazenadas como segredos do repositório
     - uses: aws-actions/configure-aws-credentials@v4
       with:
-        aws-access-key-id    : ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region:            ${{ secrets.AWS_REGION }}
         aws-session-token    : ${{ secrets.AWS_SESSION_TOKEN }}
-        aws-region           : ${{ env.AWS_REGION }}
-        role-skip-session-tagging: true   # evita sts:TagSession
 
-    # 3 – Descobre o Account ID
-    - id: acct
-      run: echo "ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)" >> $GITHUB_ENV
+    - uses: aws-actions/amazon-ecr-login@v2
 
-    # 4 – Terraform CLI
-    - uses: hashicorp/setup-terraform@v2
-      with: { terraform_version: 1.7.5 }
-
-    # 5 – Módulo ECR: cria ou importa repositório
-    - name: Terraform – ECR
-      working-directory: infra/ecr
-      env:
-        TF_VAR_aws_region    : ${{ env.AWS_REGION }}
-        TF_VAR_ecr_repo_name : ${{ env.SERVICE_NAME }}
+    - name: Build & Push Docker image
       run: |
-        terraform init -input=false
-        terraform apply -auto-approve -input=false || \
-        terraform import aws_ecr_repository.app_repo ${SERVICE_NAME}
+        IMAGE_URI=$(aws ecr describe-repositories --repository-names $ECR_REPO --query "repositories[0].repositoryUri" --output text)
+        docker build -t $IMAGE_URI:latest .
+        docker push $IMAGE_URI:latest
 
-    # 6 – Calcula a URL do repositório
-    - id: repo
-      run: echo "REPO_URL=${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${SERVICE_NAME}" >> $GITHUB_ENV
-
-    # 7 – Login no ECR (precisa ecr:GetAuthorizationToken)
-    - run: |
-        aws ecr get-login-password --region $AWS_REGION | \
-        docker login --username AWS --password-stdin $REPO_URL
-
-    # 8 – Build & push (Docker já existe no runner)
-    - uses: docker/setup-buildx-action@v3
-    - uses: docker/build-push-action@v5
+    - uses: hashicorp/setup-terraform@v3
       with:
-        push: true
-        tags: ${{ env.REPO_URL }}:${{ github.sha }}
+        terraform_version: 1.6.5
 
-    # 9 – Importa ALB, TG e SG se já existirem
-    - name: Importar ALB/TG/SG existentes
-      working-directory: infra/ecs
-      run: |
-        terraform init -input=false
+    - run: terraform init
+    - run: terraform apply -auto-approve
 
-        VPC_ID=$(aws ec2 describe-vpcs --filters Name=isDefault,Values=true \
-                    --query 'Vpcs[0].VpcId' --output text)
-
-        LB_ARN=$(aws elbv2 describe-load-balancers \
-                   --names "${SERVICE_NAME}-alb" \
-                   --query 'LoadBalancers[0].LoadBalancerArn' \
-                   --output text 2>/dev/null || echo "")
-        TG_ARN=$(aws elbv2 describe-target-groups \
-                   --names "${SERVICE_NAME}-tg" \
-                   --query 'TargetGroups[0].TargetGroupArn' \
-                   --output text 2>/dev/null || echo "")
-        SG_ID=$(aws ec2 describe-security-groups \
-                  --filters Name=vpc-id,Values=${VPC_ID} \
-                            Name=group-name,Values=${SERVICE_NAME}-alb-sg \
-                  --query 'SecurityGroups[0].GroupId' \
-                  --output text 2>/dev/null || echo "")
-
-        echo "::group::Import detected resources"
-        echo "LB_ARN=$LB_ARN"
-        echo "TG_ARN=$TG_ARN"
-        echo "SG_ID=$SG_ID"
-        echo "::endgroup::"
-
-        [ -n "$LB_ARN" ] && terraform import -input=false aws_lb.app "$LB_ARN" || true
-        [ -n "$TG_ARN" ] && terraform import -input=false aws_lb_target_group.tg "$TG_ARN" || true
-        [ -n "$SG_ID"  ] && terraform import -input=false aws_security_group.alb_sg "$SG_ID" || true
-
-    # 10 – Módulo ECS/ALB
-    - name: Terraform – ECS/ALB
-      working-directory: infra/ecs
-      env:
-        TF_VAR_aws_region     : ${{ env.AWS_REGION }}
-        TF_VAR_service_name   : ${{ env.SERVICE_NAME }}
-        TF_VAR_container_port : ${{ env.PORT }}
-        TF_VAR_image_uri      : ${{ env.REPO_URL }}:${{ github.sha }}
-        TF_VAR_exec_role_name : LabRole
-        TF_VAR_db_host        : ${{ secrets.DB_HOST }}
-        TF_VAR_db_port        : ${{ secrets.DB_PORT }}
-        TF_VAR_db_user        : ${{ secrets.DB_USER }}
-        TF_VAR_db_password    : ${{ secrets.DB_PASSWORD }}
-        TF_VAR_db_name        : ${{ secrets.DB_NAME }}
-      run: |
-        terraform apply -auto-approve -input=false
-
-    # 11 – Mostra a URL do ALB
     - name: Show URL
-      working-directory: infra/ecs
-      run: echo "::notice title=ALB URL::$(terraform output -raw alb_dns)"
+      run: terraform output -raw service_url
