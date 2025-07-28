@@ -13,10 +13,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    # 1) Checkout
+    # 1) Checkout do código
     - uses: actions/checkout@v4
 
-    # 2) Credenciais AWS
+    # 2) Credenciais AWS (armazenadas como Secrets)
     - uses: aws-actions/configure-aws-credentials@v4
       with:
         aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
@@ -27,33 +27,47 @@ jobs:
     # 3) Login no ECR
     - uses: aws-actions/amazon-ecr-login@v2
 
-    # 4) Build & Push (executa na **raiz** — sem working-directory)
+    # 4) Build & Push da imagem Docker (executa na raiz)
     - name: Build & Push image
-      run: |
-        # cria o repo se não existir
-        aws ecr describe-repositories --repository-names $ECR_REPO \
-          || aws ecr create-repository --repository-name $ECR_REPO \
-               --image-tag-mutability MUTABLE
-        IMAGE_URI=$(aws ecr describe-repositories --repository-names $ECR_REPO \
-                   --query 'repositories[0].repositoryUri' --output text)
-        docker build -t $IMAGE_URI:latest .          # aqui o Dockerfile existe
-        docker push $IMAGE_URI:latest
       shell: bash
+      run: |
+        # Cria o repo ECR se ainda não existir
+        aws ecr describe-repositories --repository-names $ECR_REPO 2>/dev/null \
+          || aws ecr create-repository --repository-name $ECR_REPO --image-tag-mutability MUTABLE
+
+        IMAGE_URI=$(aws ecr describe-repositories --repository-names $ECR_REPO \
+                      --query 'repositories[0].repositoryUri' --output text)
+
+        docker build -t $IMAGE_URI:latest .
+        docker push $IMAGE_URI:latest
 
     # 5) Instala Terraform
     - uses: hashicorp/setup-terraform@v3
       with:
         terraform_version: 1.6.5
 
-    # 6) Terraform (executa dentro de infra/)
-    - name: Terraform Init
+    # 6) Init + Import condicional (diretório infra/)
+    - name: Terraform Init + Import (se necessário)
       working-directory: infra
-      run: terraform init
+      shell: bash
+      run: |
+        terraform init -input=false
 
+        # Verifica se aplicação EB já existe na AWS
+        if aws elasticbeanstalk describe-applications \
+             --application-names payment-service \
+             --query 'Applications[0].ApplicationName' --output text >/dev/null 2>&1; then
+          echo "Aplicação EB já existe; importando se ainda não estiver no state…"
+          terraform state show aws_elastic_beanstalk_application.app >/dev/null 2>&1 \
+            || terraform import aws_elastic_beanstalk_application.app payment-service
+        fi
+
+    # 7) Apply
     - name: Terraform Apply
       working-directory: infra
-      run: terraform apply -auto-approve
+      run: terraform apply -auto-approve -input=false
 
-    - name: Print service URL
+    # 8) Mostra URL pública
+    - name: Output service URL
       working-directory: infra
-      run: terraform output -raw service_url
+      run: echo "Service URL => $(terraform output -raw service_url)"
