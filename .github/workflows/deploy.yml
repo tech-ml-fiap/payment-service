@@ -143,7 +143,7 @@ jobs:
     
         # executa o contêiner em modo transient apenas para migrar
         docker run --rm \
-          -e DATABASE_URL=$DATABASE_URL \
+          -e DATABASE_URL=DB_HOST \
           $IMAGE_URI:${{ env.APP_VERSION }} \
           alembic upgrade head
 
