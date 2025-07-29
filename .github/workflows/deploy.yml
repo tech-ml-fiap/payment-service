@@ -155,7 +155,7 @@ jobs:
           alembic upgrade head
       
 
-      # 9) Exibe a URL pública
+      # 9) Exibe a URL
     - name: Show service URL
       working-directory: infra
       run: echo "🟢 URL -> $(terraform output -raw service_url)"
