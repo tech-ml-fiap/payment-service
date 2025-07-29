@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException
+from typing import List
+
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from app.adapters.driver.controllers.schemas import (
     PaymentCreateIn,
@@ -75,3 +77,36 @@ def webhook(body: WebhookIn, db: Session = Depends(get_db)):
 
     except Exception as e:
         raise HTTPException(404, str(e))
+
+@router.get("", response_model=List[PaymentStatusOut], status_code=200)
+def list_payments(
+    skip: int = Query(0, ge=0, description="Registros a pular (offset)"),
+    limit: int = Query(50, ge=1, le=100, description="Qtd. máxima de registros"),
+    db: Session = Depends(get_db),
+):
+    """
+    Retorna uma lista paginada de pagamentos.
+
+    - **skip**: offset da consulta (default = 0)
+    - **limit**: quantidade máxima de registros (default = 50, máx. = 100)
+    """
+    repo = PaymentRepository(db)
+    service = lps.ListPaymentsService(repo)
+
+    try:
+        payments = service.execute(skip=skip, limit=limit)
+
+        return [
+            PaymentStatusOut(
+                order_id=p.order_id,
+                status=p.status,
+                qr_code=p.qr_code,
+                amount=p.amount,
+                payment_date=p.payment_date,
+                description=p.description,
+            )
+            for p in payments
+        ]
+
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
