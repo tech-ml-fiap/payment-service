@@ -133,7 +133,7 @@ jobs:
 
     - name: Run Alembic migrations
       env:
-        DATABASE_URL: ${{ secrets.DB_HOST }}
+        DATABASE_URL: ${{ secrets.DB_URL  }}
       run: |
         # aguarda o ambiente ficar 100% verde
         aws elasticbeanstalk wait environment-update-complete \
@@ -143,7 +143,7 @@ jobs:
     
         # executa o contêiner em modo transient apenas para migrar
         docker run --rm \
-          -e DATABASE_URL=DATABASE_URL \
+          -e DATABASE_URL=DB_URL  \
           $IMAGE_URI:${{ env.APP_VERSION }} \
           alembic upgrade head
 
