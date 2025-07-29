@@ -14,7 +14,7 @@ from app.domain.services import (
     update_payment_status_service as ups,
 )
 from app.adapters.driven.repositories.payment import PaymentRepository
-from app.shared.enums.payment_status import PaymentStatus
+from app.domain.services.list_payment_service import ListPaymentsService
 from app.shared.generate_qr_data import generate_qr_data
 from app.adapters.driver.dependencies import get_db
 
@@ -78,6 +78,7 @@ def webhook(body: WebhookIn, db: Session = Depends(get_db)):
     except Exception as e:
         raise HTTPException(404, str(e))
 
+
 @router.get("", response_model=List[PaymentStatusOut], status_code=200)
 def list_payments(
     skip: int = Query(0, ge=0, description="Registros a pular (offset)"),
@@ -91,7 +92,7 @@ def list_payments(
     - **limit**: quantidade máxima de registros (default = 50, máx. = 100)
     """
     repo = PaymentRepository(db)
-    service = lps.ListPaymentsService(repo)
+    service = ListPaymentsService(repo)
 
     try:
         payments = service.execute(skip=skip, limit=limit)

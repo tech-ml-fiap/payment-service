@@ -19,5 +19,6 @@ def test_update_paid(repo):
 def test_update_not_found(repo):
     service = UpdatePaymentStatusService(repo)
     import pytest
+
     with pytest.raises(ValueError):
         service.execute(99, PaymentStatus.PAID)

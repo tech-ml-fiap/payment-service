@@ -1,5 +1,3 @@
-from app.shared.enums.payment_status import PaymentStatus
-
 def test_create_and_get(client):
     body = {"order_id": 10, "amount": 50.0}
     r = client.post("/api/payment", json=body)
@@ -11,5 +9,3 @@ def test_create_and_get(client):
     data = r.json()
     assert data["status"] == "PENDING"
     assert data["qr_code"] == qr
-
-
