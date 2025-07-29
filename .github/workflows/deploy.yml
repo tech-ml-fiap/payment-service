@@ -139,27 +139,6 @@ jobs:
           -var="algorithm=${ALGORITHM}" \
           -var="token_expire=${ACCESS_TOKEN_EXPIRE_MINUTES}"
 
-    # 10) Aguarda ambiente verde + migrações
-    - name: Run Alembic migrations
-      env:
-        DATABASE_URL: ${{ secrets.DB_URL }}
-      shell: bash
-      run: |
-        set -euo pipefail
-        ENV_ID=$(aws elasticbeanstalk describe-environments \
-                   --application-name payment-service \
-                   --query 'Environments[0].EnvironmentId' --output text \
-                   --region $AWS_REGION)
-
-        aws elasticbeanstalk wait environment-updated \
-          --environment-id "$ENV_ID" --region $AWS_REGION
-
-        docker run --rm \
-          -e DATABASE_URL="$DATABASE_URL" \
-          ${IMAGE_URI}:${APP_VERSION} \
-          alembic upgrade head
-
-    # 11) Exibe URL pública
     - name: Show service URL
       working-directory: infra
       run: echo "🟢 URL -> $(terraform output -raw service_url)"
