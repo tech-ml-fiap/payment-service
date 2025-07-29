@@ -131,23 +131,31 @@ jobs:
           -var="algorithm=${ALGORITHM}" \
           -var="token_expire=${ACCESS_TOKEN_EXPIRE_MINUTES}"
 
+      # 9) Run Alembic migrations
     - name: Run Alembic migrations
       env:
-        DATABASE_URL: ${{ secrets.DB_URL  }}
+        DATABASE_URL: ${{ secrets.DB_URL }}          # string completa
+      shell: bash
       run: |
-        # aguarda o ambiente ficar 100% verde
-        aws elasticbeanstalk wait environment-update-complete \
-          --environment-id $(aws elasticbeanstalk describe-environments \
-               --application-name payment-service \
-               --query 'Environments[0].EnvironmentId' --output text)
-    
-        # executa o contêiner em modo transient apenas para migrar
-        docker run --rm \
-          -e DATABASE_URL=DB_URL  \
-          $IMAGE_URI:${{ env.APP_VERSION }} \
-          alembic upgrade head
+        set -euo pipefail
 
-    # 9) Exibe a URL pública
+        # Aguarda o Beanstalk terminar o deploy
+        ENV_ID=$(aws elasticbeanstalk describe-environments \
+                   --application-name payment-service \
+                   --query 'Environments[0].EnvironmentId' \
+                   --output text --region $AWS_REGION)
+
+        aws elasticbeanstalk wait environment-updated \
+            --environment-id "$ENV_ID" --region $AWS_REGION
+
+        # Executa migração (contêiner transitório)
+        docker run --rm \
+          -e DATABASE_URL="$DATABASE_URL" \
+          $IMAGE_URI:${APP_VERSION} \
+          alembic upgrade head
+      
+
+      # 9) Exibe a URL pública
     - name: Show service URL
       working-directory: infra
       run: echo "🟢 URL -> $(terraform output -raw service_url)"
